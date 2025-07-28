@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Live Text Highlighter</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: sans-serif;
+    }
+    #video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 1;
+    }
+    #canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 2;
+    }
+    #overlay {
+      position: absolute;
+      z-index: 3;
+      top: 10px;
+      left: 10px;
+      color: white;
+      background: rgba(0,0,0,0.4);
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="overlay">Click text to search</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    let boxes = [];
+
+    // Get camera stream
+    navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+      .then(stream => {
+        video.srcObject = stream;
+        video.addEventListener('loadeddata', () => {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          renderLoop();
+        });
+      })
+      .catch(err => alert("Camera error: " + err));
+
+    function renderLoop() {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = 'dodgerblue';
+      ctx.lineWidth = 2;
+      ctx.font = '16px sans-serif';
+      ctx.fillStyle = 'dodgerblue';
+
+      boxes.forEach(b => {
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+        ctx.fillText(b.text, b.x + 4, b.y - 4);
+      });
+
+      requestAnimationFrame(renderLoop);
+    }
+
+    // OCR every 1.5 seconds
+    setInterval(() => {
+      const snapshot = document.createElement('canvas');
+      snapshot.width = canvas.width;
+      snapshot.height = canvas.height;
+      snapshot.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      Tesseract.recognize(snapshot, 'eng', {
+        logger: m => console.log(m)
+      }).then(({ data: { words } }) => {
+        boxes = words
+          .filter(w => w.text && /^[a-zA-Z0-9\s.,]+$/.test(w.text)) // filter garbage
+          .map(w => ({
+            text: w.text.trim(),
+            x: w.bbox.x0,
+            y: w.bbox.y0,
+            w: w.bbox.x1 - w.bbox.x0,
+            h: w.bbox.y1 - w.bbox.y0
+          }));
+      });
+    }, 1500);
+
+    // On click - find text box clicked
+    canvas.addEventListener('click', e => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      const clicked = boxes.find(b =>
+        x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h
+      );
+
+      if (clicked) {
+        const query = encodeURIComponent(clicked.text);
+        window.open(`https://www.google.com/search?q=${query}`, '_blank');
+      }
+    });
+  </script>
+</body>
+</html>
